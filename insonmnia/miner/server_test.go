@@ -58,6 +58,7 @@ func defaultMockCfg(mock *gomock.Controller) *MockConfig {
 	cfg.EXPECT().LocatorEndpoint().AnyTimes().Return("127.0.0.1:9090")
 	cfg.EXPECT().PublicIPs().AnyTimes().Return([]string{"192.168.70.17", "46.148.198.133"})
 	cfg.EXPECT().Plugins().AnyTimes().Return(plugin.Config{})
+	cfg.EXPECT().Store().AnyTimes().Return("/tmp/sonm/worker_test.boltdb")
 	return cfg
 }
 
@@ -159,15 +160,13 @@ func TestMinerHandshake(t *testing.T) {
 	}, nil)
 	locator := pb.NewMockLocatorClient(mock)
 
-	m, err := NewMiner(cfg, WithKey(key), WithHardware(collector),
-		WithOverseer(ovs), WithUUID("deadbeef-cafe-dead-beef-cafedeadbeef"), WithLocatorClient(locator))
+	m, err := NewMiner(cfg, WithKey(key), WithHardware(collector), WithLocatorClient(locator))
 
 	require.NotNil(t, m)
 	require.Nil(t, err)
 	reply, err := m.Handshake(context.Background(), &pb.MinerHandshakeRequest{Hub: "testHub"})
 	assert.NotNil(t, reply)
 	assert.Nil(t, err)
-	assert.Equal(t, reply.Miner, "deadbeef-cafe-dead-beef-cafedeadbeef")
 	assert.Equal(t, int32(2), reply.Capabilities.Cpu[0].Cores)
 	assert.Equal(t, uint64(2048), reply.Capabilities.Mem.Total)
 }
@@ -189,8 +188,7 @@ func TestMinerStart(t *testing.T) {
 	locator := pb.NewMockLocatorClient(mock)
 	hw := magicHardware(mock)
 
-	m, err := NewMiner(cfg, WithKey(key), WithOverseer(ovs),
-		WithUUID("deadbeef-cafe-dead-beef-cafedeadbeef"), WithLocatorClient(locator), WithHardware(hw))
+	m, err := NewMiner(cfg, WithKey(key), WithOverseer(ovs), WithLocatorClient(locator), WithHardware(hw))
 
 	require.NotNil(t, m)
 	require.Nil(t, err)

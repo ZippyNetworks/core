@@ -18,7 +18,6 @@ import (
 	"github.com/gliderlabs/ssh"
 	"github.com/grpc-ecosystem/go-grpc-prometheus"
 	log "github.com/noxiouz/zapctx/ctxlog"
-	"github.com/pborman/uuid"
 	"github.com/pkg/errors"
 	"github.com/sonm-io/core/insonmnia/auth"
 	"github.com/sonm-io/core/insonmnia/hardware"
@@ -49,8 +48,6 @@ type Miner struct {
 
 	plugins *plugin.Repository
 
-	// Miner name for nice self-representation.
-	name      string
 	hardware  *hardware.Hardware
 	resources *resource.Pool
 
@@ -92,6 +89,7 @@ type Miner struct {
 	certRotator util.HitlessCertRotator
 
 	locatorClient pb.LocatorClient
+	state         *state
 }
 
 func NewMiner(cfg Config, opts ...Option) (m *Miner, err error) {
@@ -112,10 +110,6 @@ func NewMiner(cfg Config, opts ...Option) (m *Miner, err error) {
 		o.ctx = context.Background()
 	}
 
-	if len(o.uuid) == 0 {
-		o.uuid = uuid.New()
-	}
-
 	if o.hardware == nil {
 		o.hardware = hardware.New()
 	}
@@ -130,6 +124,11 @@ func NewMiner(cfg Config, opts ...Option) (m *Miner, err error) {
 	}
 
 	cgroup, cGroupManager, err := makeCgroupManager(cfg.HubResources())
+	if err != nil {
+		return nil, err
+	}
+
+	state, err := NewState(o.ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +207,6 @@ func NewMiner(cfg Config, opts ...Option) (m *Miner, err error) {
 
 		plugins: plugins,
 
-		name:      o.uuid,
 		hardware:  hardwareInfo,
 		resources: resource.NewPool(hardwareInfo),
 
@@ -230,6 +228,7 @@ func NewMiner(cfg Config, opts ...Option) (m *Miner, err error) {
 		creds:       creds,
 
 		locatorClient: o.locatorClient,
+		state:         state,
 	}
 
 	pb.RegisterMinerServer(grpcServer, m)
@@ -334,7 +333,7 @@ func (m *Miner) Info(ctx context.Context, request *pb.Empty) (*pb.InfoReply, err
 
 	var result = &pb.InfoReply{
 		Usage:        make(map[string]*pb.ResourceUsage),
-		Name:         m.name,
+		Name:         m.state.getID(),
 		Capabilities: m.hardware.IntoProto(),
 	}
 
@@ -355,7 +354,7 @@ func (m *Miner) Handshake(ctx context.Context, request *pb.MinerHandshakeRequest
 	log.G(m.ctx).Info("handling Handshake request", zap.Any("req", request))
 
 	resp := &pb.MinerHandshakeReply{
-		Miner:        m.name,
+		Miner:        m.state.getID(),
 		Capabilities: m.hardware.IntoProto(),
 		NatType:      pb.NewNATType(m.natType),
 	}

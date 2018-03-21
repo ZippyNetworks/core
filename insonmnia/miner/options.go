@@ -18,7 +18,6 @@ type options struct {
 	hardware      hardware.Info
 	nat           stun.NATType
 	ovs           Overseer
-	uuid          string
 	ssh           SSH
 	key           *ecdsa.PrivateKey
 	publicIPs     []string
@@ -99,12 +98,6 @@ func WithNat(nat stun.NATType) Option {
 func WithOverseer(ovs Overseer) Option {
 	return func(opts *options) {
 		opts.ovs = ovs
-	}
-}
-
-func WithUUID(uuid string) Option {
-	return func(opts *options) {
-		opts.uuid = uuid
 	}
 }
 

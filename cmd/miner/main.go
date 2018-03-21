@@ -2,14 +2,12 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
 	log "github.com/noxiouz/zapctx/ctxlog"
-	"github.com/pborman/uuid"
 	"github.com/sonm-io/core/cmd"
 	"github.com/sonm-io/core/insonmnia/logging"
 	"github.com/sonm-io/core/insonmnia/miner"
@@ -44,19 +42,9 @@ func run() {
 		os.Exit(1)
 	}
 
-	if _, err := os.Stat(cfg.UUIDPath()); os.IsNotExist(err) {
-		ioutil.WriteFile(cfg.UUIDPath(), []byte(uuid.New()), 0660)
-	}
-
-	uuidData, err := ioutil.ReadFile(cfg.UUIDPath())
-	if err != nil {
-		log.G(ctx).Error("cannot load uuid", zap.Error(err))
-		os.Exit(1)
-	}
-
 	ctx, cancel := context.WithCancel(ctx)
 	opts := make([]miner.Option, 0)
-	opts = append(opts, miner.WithContext(ctx), miner.WithKey(key), miner.WithUUID(string(uuidData)))
+	opts = append(opts, miner.WithContext(ctx), miner.WithKey(key))
 	if dev := cfg.Dev(); dev != nil {
 		if len(dev.DevAddr) != 0 {
 			listener, err := net.Listen("tcp", dev.DevAddr)
