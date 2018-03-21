@@ -20,6 +20,7 @@ import (
 	log "github.com/noxiouz/zapctx/ctxlog"
 	"github.com/pkg/errors"
 	"github.com/sonm-io/core/insonmnia/auth"
+	"github.com/sonm-io/core/insonmnia/benchmarks"
 	"github.com/sonm-io/core/insonmnia/hardware"
 	"github.com/sonm-io/core/insonmnia/miner/plugin"
 	"github.com/sonm-io/core/insonmnia/miner/volume"
@@ -89,6 +90,7 @@ type Miner struct {
 	certRotator util.HitlessCertRotator
 
 	locatorClient pb.LocatorClient
+	benchmarkList benchmarks.BenchList
 	state         *state
 }
 
@@ -116,6 +118,11 @@ func NewMiner(cfg Config, opts ...Option) (m *Miner, err error) {
 
 	if o.listener == nil {
 		o.listener = newReverseListener(1)
+	}
+
+	if o.benchList == nil {
+		// todo: replace this shit with some benchmark impl.
+		o.benchList = benchmarks.NewDumbBenchmarks()
 	}
 
 	hardwareInfo, err := o.hardware.Info()
@@ -229,6 +236,7 @@ func NewMiner(cfg Config, opts ...Option) (m *Miner, err error) {
 
 		locatorClient: o.locatorClient,
 		state:         state,
+		benchmarkList: o.benchList,
 	}
 
 	pb.RegisterMinerServer(grpcServer, m)
@@ -917,9 +925,58 @@ func (m *Miner) startSSH() {
 	}
 }
 
+func (m *Miner) doBenchmarking() error {
+	exitingBenches := m.state.getBenchmarkResults()
+	requiredBenches, err := m.benchmarkList.List()
+	if err != nil {
+		log.G(m.ctx).Warn("")
+		return err
+	}
+
+	isMatched := m.isBenchmarkListMatches(requiredBenches, exitingBenches)
+	if isMatched {
+		log.G(m.ctx).Debug("benchmarks list is matched, skit benchmarking this worker")
+		return nil
+	}
+
+	for _, bench := range requiredBenches {
+		result, err := m.runSingleBenchmark(bench)
+		if err != nil {
+			return err
+		}
+
+		log.G(m.ctx).Debug("saving benchmark results",
+			zap.Uint64("result", result),
+			zap.String("bench_id", bench.GetID()))
+		bench.Result = result
+	}
+
+	return m.state.setBenchmarkResults(requiredBenches)
+}
+
+func (m *Miner) isBenchmarkListMatches(required, exiting map[string]*pb.Benchmark) bool {
+	for id := range required {
+		if _, ok := exiting[id]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (m *Miner) runSingleBenchmark(bench *pb.Benchmark) (uint64, error) {
+	log.G(m.ctx).Debug("starting benchmark", zap.Any("bench", bench))
+	return 1488, nil
+}
+
 // Serve starts discovery of Hubs,
 // accepts incoming connections from a Hub
 func (m *Miner) Serve() error {
+	err := m.doBenchmarking()
+	if err != nil {
+		return fmt.Errorf("cannot ")
+	}
+
 	go func() { m.manageConnections() }()
 	go func() { m.startSSH() }()
 	go func() { m.grpcServer.Serve(m.listener) }()

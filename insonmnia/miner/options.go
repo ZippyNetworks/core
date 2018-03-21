@@ -7,6 +7,7 @@ import (
 	"github.com/ccding/go-stun/stun"
 	log "github.com/noxiouz/zapctx/ctxlog"
 	"github.com/pkg/errors"
+	"github.com/sonm-io/core/insonmnia/benchmarks"
 	"github.com/sonm-io/core/insonmnia/hardware"
 	pb "github.com/sonm-io/core/proto"
 	"github.com/sonm-io/core/util"
@@ -24,6 +25,7 @@ type options struct {
 	locatorClient pb.LocatorClient
 	listener      net.Listener
 	insecure      bool
+	benchList     benchmarks.BenchList
 }
 
 func (o *options) setupNetworkOptions(cfg Config) error {
@@ -129,6 +131,13 @@ func WithInsecure(val bool) Option {
 	return func(opts *options) {
 		opts.insecure = val
 	}
+}
+
+func WithBenchmarkList(list benchmarks.BenchList) Option {
+	return func(opts *options) {
+		opts.benchList = list
+	}
+
 }
 
 func makeCgroupManager(cfg *ResourcesConfig) (cGroup, cGroupManager, error) {
