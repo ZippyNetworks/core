@@ -1,6 +1,7 @@
 package miner
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/ccding/go-stun/stun"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gliderlabs/ssh"
@@ -929,13 +931,13 @@ func (m *Miner) doBenchmarking() error {
 	exitingBenches := m.state.getBenchmarkResults()
 	requiredBenches, err := m.benchmarkList.List()
 	if err != nil {
-		log.G(m.ctx).Warn("")
+		log.G(m.ctx).Warn("cannot retrieve benchmarks list")
 		return err
 	}
 
 	isMatched := m.isBenchmarkListMatches(requiredBenches, exitingBenches)
 	if isMatched {
-		log.G(m.ctx).Debug("benchmarks list is matched, skit benchmarking this worker")
+		log.G(m.ctx).Debug("benchmarks list is matched, skip benchmarking this worker")
 		return nil
 	}
 
@@ -946,8 +948,8 @@ func (m *Miner) doBenchmarking() error {
 		}
 
 		log.G(m.ctx).Debug("saving benchmark results",
-			zap.Uint64("result", result),
-			zap.String("bench_id", bench.GetID()))
+			zap.String("bench_id", bench.GetID()),
+			zap.Uint64("result", result))
 		bench.Result = result
 	}
 
@@ -965,8 +967,46 @@ func (m *Miner) isBenchmarkListMatches(required, exiting map[string]*pb.Benchmar
 }
 
 func (m *Miner) runSingleBenchmark(bench *pb.Benchmark) (uint64, error) {
-	log.G(m.ctx).Debug("starting benchmark", zap.Any("bench", bench))
-	return 1488, nil
+	log.G(m.ctx).Info("starting benchmark", zap.Any("bench", bench))
+
+	d := Description{
+		Image: bench.GetImage(),
+	}
+	_, statusReply, err := m.ovs.Start(m.ctx, d)
+	if err != nil {
+		return 0, fmt.Errorf("cannot start container with benchmark: %v", err)
+	}
+
+	logOpts := types.ContainerLogsOptions{ShowStdout: true}
+	reader, err := m.ovs.Logs(m.ctx, statusReply.ID, logOpts)
+	if err != nil {
+		return 0, fmt.Errorf("cannot create container log reader: %v", err)
+	}
+	defer reader.Close()
+
+	stdoutBuf := bytes.Buffer{}
+	stderrBuf := bytes.Buffer{}
+	_, err = stdcopy.StdCopy(&stdoutBuf, &stderrBuf, reader)
+	if err != nil {
+		return 0, fmt.Errorf("cannot read logs into buffer: %v", err)
+	}
+
+	bench, err = parseBenchmarkResult(stdoutBuf.Bytes())
+	if err != nil {
+		return 0, fmt.Errorf("cannot parse benchmark result: %v", err)
+	}
+
+	return bench.Result, nil
+}
+
+func parseBenchmarkResult(data []byte) (*pb.Benchmark, error) {
+	v := &pb.Benchmark{}
+	err := json.Unmarshal(data, &v)
+	if err != nil {
+		return nil, err
+	}
+
+	return v, nil
 }
 
 // Serve starts discovery of Hubs,
@@ -974,7 +1014,7 @@ func (m *Miner) runSingleBenchmark(bench *pb.Benchmark) (uint64, error) {
 func (m *Miner) Serve() error {
 	err := m.doBenchmarking()
 	if err != nil {
-		return fmt.Errorf("cannot ")
+		return fmt.Errorf("cannot perform benchmarks: %v", err)
 	}
 
 	go func() { m.manageConnections() }()
